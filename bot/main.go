@@ -141,7 +141,11 @@ func jogarTurno(turno int, ambulancias []Ambulancia) {
 			melhor := -1
 			for i, c := range chamados {
 				if melhor == -1 || distancia(a.X, a.Y, c.X, c.Y) < distancia(a.X, a.Y, chamados[melhor].X, chamados[melhor].Y) {
-					melhor = i
+					if c.atendido != true {
+						if c.Prazo >= turno+distancia(a.X, a.Y, c.X, c.Y) {
+							melhor = i
+						}
+					}
 				}
 			}
 			if melhor != -1 {
