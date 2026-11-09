@@ -29,6 +29,95 @@ type Chamado struct {
 	atendido bool
 }
 
+type No struct {
+	Info Chamado
+	Alt  int
+	Esq  *No
+	Dir  *No
+}
+
+func Insere(a *No, v Chamado, xhospital int, yhospital int) *No {
+	if a == nil {
+		return &No{Info: v}
+	}
+
+	if distancia(xhospital, yhospital, v.X, v.Y) < distancia(a.Info.X, a.Info.Y, xhospital, yhospital) {
+		a.Esq = Insere(a.Esq, v, xhospital, yhospital)
+	} else if distancia(xhospital, yhospital, v.X, v.Y) > distancia(a.Info.X, a.Info.Y, xhospital, yhospital) {
+		a.Dir = Insere(a.Dir, v, xhospital, yhospital)
+	} else {
+		return a
+	}
+
+	atualizaAltura(a)
+	return rebalanceia(a)
+}
+
+func atualizaAltura(a *No) {
+	a.Alt = 1 + maior(altura(a.Esq), altura(a.Dir))
+}
+
+func altura(a *No) int {
+	if a == nil {
+		return -1
+	}
+	return a.Alt
+}
+
+func maior(x, y int) int {
+	if x > y {
+		return x
+	}
+	return y
+}
+
+func rebalanceia(a *No) *No {
+	fb := Fator(a)
+
+	if fb > 1 { // pesada à esquerda
+		if Fator(a.Esq) < 0 { // caso esquerda-direita: endireita o filho antes
+			a.Esq = RotacaoEsquerda(a.Esq)
+		}
+		return RotacaoDireita(a) // caso esquerda-esquerda
+	}
+
+	if fb < -1 { // pesada à direita
+		if Fator(a.Dir) > 0 { // caso direita-esquerda
+			a.Dir = RotacaoDireita(a.Dir)
+		}
+		return RotacaoEsquerda(a) // caso direita-direita
+	}
+
+	return a
+}
+
+func RotacaoEsquerda(a *No) *No {
+	b := a.Dir
+	a.Dir = b.Esq
+	b.Esq = a
+
+	atualizaAltura(a)
+	atualizaAltura(b)
+	return b
+}
+
+func RotacaoDireita(a *No) *No {
+	b := a.Esq
+	a.Esq = b.Dir
+	b.Dir = a
+
+	atualizaAltura(a)
+	atualizaAltura(b)
+	return b
+}
+
+func Fator(a *No) int {
+	if a == nil {
+		return 0
+	}
+	return altura(a.Esq) - altura(a.Dir)
+}
+
 type Ambulancia struct {
 	ID    int
 	X, Y  int
@@ -37,6 +126,7 @@ type Ambulancia struct {
 
 type Hospital struct {
 	X, Y int
+	No   *No
 }
 
 var (
@@ -98,7 +188,7 @@ func lerInicio() {
 	h := inteiro(lerCampos()[1])
 	for i := 0; i < h; i++ {
 		c := lerCampos()
-		hospitais = append(hospitais, Hospital{inteiro(c[0]), inteiro(c[1])})
+		hospitais = append(hospitais, Hospital{inteiro(c[0]), inteiro(c[1]), nil})
 	}
 	k := inteiro(lerCampos()[1])
 	for i := 0; i < k; i++ {
@@ -109,6 +199,7 @@ func lerInicio() {
 		lerCampos() // x1 y1 x2 y2
 	}
 	lerCampos() // FIM
+
 }
 
 // removerPorID procura o chamado no slice e o remove, trocando-o pelo
@@ -144,6 +235,7 @@ func jogarTurno(turno int, ambulancias []Ambulancia) {
 					if c.atendido != true {
 						if c.Prazo >= turno+distancia(a.X, a.Y, c.X, c.Y) {
 							melhor = i
+							c.atendido = true
 						}
 					}
 				}
