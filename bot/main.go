@@ -31,7 +31,7 @@ type Chamado struct {
 }
 
 type No struct {
-	Info []Chamado
+	Info []int
 	Alt  int
 	Esq  *No
 	Dir  *No
@@ -39,15 +39,18 @@ type No struct {
 
 func Insere(a *No, v Chamado, xhospital int, yhospital int) *No {
 	if a == nil {
-		return &No{Info: []Chamado{v}}
+		return &No{Info: []int{v.ID}}
 	}
 
 	if distancia(xhospital, yhospital, v.X, v.Y) < distancia(a.Info[0].X, a.Info[0].Y, xhospital, yhospital) {
+
+		// inserir na tabela hash e depois acessar o ID do chamado na árvore AVL
+
 		a.Esq = Insere(a.Esq, v, xhospital, yhospital)
 	} else if distancia(xhospital, yhospital, v.X, v.Y) > distancia(a.Info[0].X, a.Info[0].Y, xhospital, yhospital) {
 		a.Dir = Insere(a.Dir, v, xhospital, yhospital)
 	} else {
-		a.Info = append(a.Info, v)
+		a.Info = append(a.Info, v.ID)
 		return a
 	}
 
