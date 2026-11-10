@@ -11,7 +11,8 @@
 // não impede que duas ambulâncias sigam para o mesmo chamado e ignora os
 // bloqueios da etapa 2. No cenário de estresse, a varredura linear estoura
 // o limite de tempo por turno.
-package main
+
+package bot
 
 import (
 	"bufio"
@@ -30,7 +31,7 @@ type Chamado struct {
 }
 
 type No struct {
-	Info Chamado
+	Info []Chamado
 	Alt  int
 	Esq  *No
 	Dir  *No
@@ -38,14 +39,15 @@ type No struct {
 
 func Insere(a *No, v Chamado, xhospital int, yhospital int) *No {
 	if a == nil {
-		return &No{Info: v}
+		return &No{Info: []Chamado{v}}
 	}
 
-	if distancia(xhospital, yhospital, v.X, v.Y) < distancia(a.Info.X, a.Info.Y, xhospital, yhospital) {
+	if distancia(xhospital, yhospital, v.X, v.Y) < distancia(a.Info[0].X, a.Info[0].Y, xhospital, yhospital) {
 		a.Esq = Insere(a.Esq, v, xhospital, yhospital)
-	} else if distancia(xhospital, yhospital, v.X, v.Y) > distancia(a.Info.X, a.Info.Y, xhospital, yhospital) {
+	} else if distancia(xhospital, yhospital, v.X, v.Y) > distancia(a.Info[0].X, a.Info[0].Y, xhospital, yhospital) {
 		a.Dir = Insere(a.Dir, v, xhospital, yhospital)
 	} else {
+		a.Info = append(a.Info, v)
 		return a
 	}
 
@@ -225,32 +227,47 @@ func removerExpirados(turno int) {
 	chamados = vivos
 }
 
-func jogarTurno(turno int, ambulancias []Ambulancia) {
+func FolhaMenor(a *No) *No {
+	if a == nil {
+		return nil
+	}
+
+	if a.Esq == nil {
+		return a
+	}
+
+	return FolhaMenor(a.Esq)
+}
+
+func jogarTurno(turno int, ambulancias []Ambulancia, hospitais []Hospital) {
 	for _, a := range ambulancias {
 		mov := "P"
+		hospitalProx := hospitais[0]
+		distanciaHospital := distancia(a.X, a.Y, hospitalProx.X, hospitalProx.Y)
 		if a.Livre {
 			melhor := -1
-			for i, c := range chamados {
-				if melhor == -1 || distancia(a.X, a.Y, c.X, c.Y) < distancia(a.X, a.Y, chamados[melhor].X, chamados[melhor].Y) {
-					if c.atendido != true {
-						if c.Prazo >= turno+distancia(a.X, a.Y, c.X, c.Y) {
-							melhor = i
-							c.atendido = true
-						}
+
+			for c := range hospitais {
+				if distancia(a.X, a.Y, hospitais[c].X, hospitais[c].Y) < distanciaHospital {
+					hospitalProx = hospitais[c]
+					distanciaHospital = distancia(a.X, a.Y, hospitalProx.X, hospitalProx.Y)
+				}
+			}
+			menordistancia := FolhaMenor(hospitalProx.No)
+			if melhor == -1 || menordistancia != nil {
+				if menordistancia.Info[0].atendido != true {
+					if menordistancia.Info[0].Prazo >= turno+distancia(a.X, a.Y, menordistancia.Info[0].X, menordistancia.Info[0].Y) {
+						melhor = menordistancia.Info[0].ID
+						menordistancia.Info[0].atendido = true
 					}
 				}
 			}
+
 			if melhor != -1 {
-				mov = direcao(a.X, a.Y, chamados[melhor].X, chamados[melhor].Y)
+				mov = direcao(a.X, a.Y, menordistancia.Info[0].X, menordistancia.Info[0].Y)
 			}
 		} else {
-			melhor := 0
-			for i, h := range hospitais {
-				if distancia(a.X, a.Y, h.X, h.Y) < distancia(a.X, a.Y, hospitais[melhor].X, hospitais[melhor].Y) {
-					melhor = i
-				}
-			}
-			mov = direcao(a.X, a.Y, hospitais[melhor].X, hospitais[melhor].Y)
+			mov = direcao(a.X, a.Y, hospitalProx.X, hospitalProx.Y)
 		}
 		fmt.Fprintln(escritor, a.ID, mov)
 	}
@@ -278,6 +295,9 @@ func main() {
 		for i := 0; i < n; i++ {
 			c := lerCampos()
 			chamados = append(chamados, Chamado{inteiro(c[0]), inteiro(c[1]), inteiro(c[2]), inteiro(c[3]), inteiro(c[4]), false})
+			for _, h := range hospitais {
+				h.No = Insere(h.No, Chamado{inteiro(c[0]), inteiro(c[1]), inteiro(c[2]), inteiro(c[3]), inteiro(c[4]), false}, h.X, h.Y)
+			}
 		}
 
 		r := inteiro(lerCampos()[1]) // RECOLHIDOS r
@@ -299,6 +319,6 @@ func main() {
 		}
 		lerCampos() // FIM
 
-		jogarTurno(turno, ambulancias)
+		jogarTurno(turno, ambulancias, hospitais)
 	}
 }
