@@ -1,126 +1,29 @@
-// Bot ingênuo: ponto de partida do trabalho prático.
+// Bot de despacho (etapa 1).
 //
-// Este bot implementa o protocolo inteiro e joga de forma simples:
-//
-//   - guarda os chamados abertos num slice;
-//   - a cada turno, cada ambulância livre procura, por varredura linear,
-//     o chamado mais próximo e anda na direção dele;
-//   - cada ambulância ocupada anda na direção do hospital mais próximo.
-//
-// Ele não verifica se o chamado ainda pode ser alcançado dentro do prazo,
-// não impede que duas ambulâncias sigam para o mesmo chamado e ignora os
-// bloqueios da etapa 2. No cenário de estresse, a varredura linear estoura
-// o limite de tempo por turno.
-
-package bot
+// Estruturas:
+//   - tabela hash id -> Chamado: achar/remover por id em O(1);
+//   - AVL por hospital (duas: comuns e graves), ordenada por (distância do
+//     chamado ao hospital, id): os chamados mais próximos ficam à esquerda;
+//     cada chamado entra só na árvore do hospital mais próximo dele;
+//   - baldes por prazo: expirar chamados sem varrer todos;
+//   - reserva: o chamado escolhido sai da árvore, então duas ambulâncias
+//     nossas nunca seguem para o mesmo chamado.
+package main
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
 )
 
 type Chamado struct {
-	ID       int
-	X, Y     int
-	Valor    int
-	Prazo    int
-	atendido bool
-}
-
-type No struct {
-	Info []int
-	Alt  int
-	Esq  *No
-	Dir  *No
-}
-
-func Insere(a *No, v Chamado, xhospital int, yhospital int) *No {
-	if a == nil {
-		return &No{Info: []int{v.ID}}
-	}
-
-	if distancia(xhospital, yhospital, v.X, v.Y) < distancia(a.Info[0].X, a.Info[0].Y, xhospital, yhospital) {
-
-		// inserir na tabela hash e depois acessar o ID do chamado na árvore AVL
-
-		a.Esq = Insere(a.Esq, v, xhospital, yhospital)
-	} else if distancia(xhospital, yhospital, v.X, v.Y) > distancia(a.Info[0].X, a.Info[0].Y, xhospital, yhospital) {
-		a.Dir = Insere(a.Dir, v, xhospital, yhospital)
-	} else {
-		a.Info = append(a.Info, v.ID)
-		return a
-	}
-
-	atualizaAltura(a)
-	return rebalanceia(a)
-}
-
-func atualizaAltura(a *No) {
-	a.Alt = 1 + maior(altura(a.Esq), altura(a.Dir))
-}
-
-func altura(a *No) int {
-	if a == nil {
-		return -1
-	}
-	return a.Alt
-}
-
-func maior(x, y int) int {
-	if x > y {
-		return x
-	}
-	return y
-}
-
-func rebalanceia(a *No) *No {
-	fb := Fator(a)
-
-	if fb > 1 { // pesada à esquerda
-		if Fator(a.Esq) < 0 { // caso esquerda-direita: endireita o filho antes
-			a.Esq = RotacaoEsquerda(a.Esq)
-		}
-		return RotacaoDireita(a) // caso esquerda-esquerda
-	}
-
-	if fb < -1 { // pesada à direita
-		if Fator(a.Dir) > 0 { // caso direita-esquerda
-			a.Dir = RotacaoDireita(a.Dir)
-		}
-		return RotacaoEsquerda(a) // caso direita-direita
-	}
-
-	return a
-}
-
-func RotacaoEsquerda(a *No) *No {
-	b := a.Dir
-	a.Dir = b.Esq
-	b.Esq = a
-
-	atualizaAltura(a)
-	atualizaAltura(b)
-	return b
-}
-
-func RotacaoDireita(a *No) *No {
-	b := a.Esq
-	a.Esq = b.Dir
-	b.Dir = a
-
-	atualizaAltura(a)
-	atualizaAltura(b)
-	return b
-}
-
-func Fator(a *No) int {
-	if a == nil {
-		return 0
-	}
-	return altura(a.Esq) - altura(a.Dir)
+	ID, X, Y  int
+	Valor     int
+	Prazo     int
+	Arv       int
+	Dist      int
+	Reservado bool
 }
 
 type Ambulancia struct {
@@ -131,7 +34,160 @@ type Ambulancia struct {
 
 type Hospital struct {
 	X, Y int
-	No   *No
+}
+
+type no struct {
+	dist, id int32
+	esq, dir int32
+	alt      int8
+}
+
+var (
+	nos   = append(make([]no, 0, 1<<20), no{alt: -1})
+	livre int32
+)
+
+func novoNo(d, id int32) int32 {
+	if livre != 0 {
+		i := livre
+		livre = nos[i].esq
+		nos[i] = no{dist: d, id: id}
+		return i
+	}
+	nos = append(nos, no{dist: d, id: id})
+	return int32(len(nos) - 1)
+}
+
+func liberaNo(i int32) {
+	nos[i] = no{esq: livre}
+	livre = i
+}
+
+func altura(i int32) int { return int(nos[i].alt) }
+
+func atualizaAltura(i int32) {
+	nos[i].alt = int8(1 + maior(altura(nos[i].esq), altura(nos[i].dir)))
+}
+
+func maior(x, y int) int {
+	if x > y {
+		return x
+	}
+	return y
+}
+
+func fator(i int32) int {
+	if i == 0 {
+		return 0
+	}
+	return altura(nos[i].esq) - altura(nos[i].dir)
+}
+
+func menorChave(d1, i1, d2, i2 int32) bool {
+	return d1 < d2 || (d1 == d2 && i1 < i2)
+}
+
+func rotacaoEsquerda(a int32) int32 {
+	b := nos[a].dir
+	nos[a].dir = nos[b].esq
+	nos[b].esq = a
+	atualizaAltura(a)
+	atualizaAltura(b)
+	return b
+}
+
+func rotacaoDireita(a int32) int32 {
+	b := nos[a].esq
+	nos[a].esq = nos[b].dir
+	nos[b].dir = a
+	atualizaAltura(a)
+	atualizaAltura(b)
+	return b
+}
+
+func rebalanceia(a int32) int32 {
+	fb := fator(a)
+	if fb > 1 {
+		if fator(nos[a].esq) < 0 {
+			e := rotacaoEsquerda(nos[a].esq)
+			nos[a].esq = e
+		}
+		return rotacaoDireita(a)
+	}
+	if fb < -1 {
+		if fator(nos[a].dir) > 0 {
+			d := rotacaoDireita(nos[a].dir)
+			nos[a].dir = d
+		}
+		return rotacaoEsquerda(a)
+	}
+	return a
+}
+
+func insere(r int32, d, id int32) int32 {
+	if r == 0 {
+		return novoNo(d, id)
+	}
+	if menorChave(d, id, nos[r].dist, nos[r].id) {
+		e := insere(nos[r].esq, d, id)
+		nos[r].esq = e
+	} else {
+		x := insere(nos[r].dir, d, id)
+		nos[r].dir = x
+	}
+	atualizaAltura(r)
+	return rebalanceia(r)
+}
+
+func removeArv(r int32, d, id int32) int32 {
+	if r == 0 {
+		return 0
+	}
+	if d == nos[r].dist && id == nos[r].id {
+		if nos[r].esq == 0 || nos[r].dir == 0 {
+			filho := nos[r].esq
+			if filho == 0 {
+				filho = nos[r].dir
+			}
+			liberaNo(r)
+			return filho
+		}
+		s := nos[r].dir
+		for nos[s].esq != 0 {
+			s = nos[s].esq
+		}
+		sd, si := nos[s].dist, nos[s].id
+		nos[r].dist, nos[r].id = sd, si
+		x := removeArv(nos[r].dir, sd, si)
+		nos[r].dir = x
+	} else if menorChave(d, id, nos[r].dist, nos[r].id) {
+		e := removeArv(nos[r].esq, d, id)
+		nos[r].esq = e
+	} else {
+		x := removeArv(nos[r].dir, d, id)
+		nos[r].dir = x
+	}
+	atualizaAltura(r)
+	return rebalanceia(r)
+}
+
+func percorre(raiz int32, f func(n int32) bool) {
+	var pilha [64]int32
+	sp := 0
+	n := raiz
+	for n != 0 || sp > 0 {
+		for n != 0 {
+			pilha[sp] = n
+			sp++
+			n = nos[n].esq
+		}
+		sp--
+		n = pilha[sp]
+		if !f(n) {
+			return
+		}
+		n = nos[n].dir
+	}
 }
 
 var (
@@ -139,11 +195,13 @@ var (
 	escritor *bufio.Writer
 
 	hospitais []Hospital
-	chamados  []Chamado
+	tab       *Tabela
+	raizes    []int32
+	expira    [][]int
+	alvo      []int
+	novos     []Chamado
 )
 
-// lerCampos lê a próxima linha da entrada e a divide em campos.
-// Devolve nil quando a entrada termina.
 func lerCampos() []string {
 	if !leitor.Scan() {
 		return nil
@@ -170,8 +228,6 @@ func distancia(x1, y1, x2, y2 int) int {
 	return abs(x1-x2) + abs(y1-y2)
 }
 
-// direcao devolve o movimento que aproxima (x, y) de (alvoX, alvoY),
-// andando primeiro na horizontal.
 func direcao(x, y, alvoX, alvoY int) string {
 	switch {
 	case x < alvoX:
@@ -186,95 +242,178 @@ func direcao(x, y, alvoX, alvoY int) string {
 	return "P"
 }
 
-// lerInicio lê a mensagem de início. Este bot só usa os hospitais; os
-// bloqueios são lidos e descartados.
+func hospitalMaisProximo(x, y int) (int, int) {
+	melhor, md := 0, distancia(x, y, hospitais[0].X, hospitais[0].Y)
+	for i := 1; i < len(hospitais); i++ {
+		if d := distancia(x, y, hospitais[i].X, hospitais[i].Y); d < md {
+			melhor, md = i, d
+		}
+	}
+	return melhor, md
+}
+
 func lerInicio() {
-	lerCampos() // INICIO largura altura turnos limite_turno limite_preparo equipe num_equipes
+	lerCampos() // INICIO ...
 	h := inteiro(lerCampos()[1])
 	for i := 0; i < h; i++ {
 		c := lerCampos()
-		hospitais = append(hospitais, Hospital{inteiro(c[0]), inteiro(c[1]), nil})
+		hospitais = append(hospitais, Hospital{inteiro(c[0]), inteiro(c[1])})
 	}
 	k := inteiro(lerCampos()[1])
 	for i := 0; i < k; i++ {
 		lerCampos() // id x y
 	}
+	alvo = make([]int, k)
 	b := inteiro(lerCampos()[1])
 	for i := 0; i < b; i++ {
 		lerCampos() // x1 y1 x2 y2
 	}
 	lerCampos() // FIM
-
+	raizes = make([]int32, 2*len(hospitais))
+	tab = Nova(proximoPrimo(1 << 20))
 }
 
-// removerPorID procura o chamado no slice e o remove, trocando-o pelo
-// último elemento. Custo: proporcional ao número de chamados abertos.
-func removerPorID(id int) {
-	for i := range chamados {
-		if chamados[i].ID == id {
-			chamados[i] = chamados[len(chamados)-1]
-			chamados = chamados[:len(chamados)-1]
-			return
-		}
+func agenda(prazo, id int) {
+	if prazo >= len(expira) {
+		expira = append(expira, make([][]int, prazo+1-len(expira))...)
+	}
+	expira[prazo] = append(expira[prazo], id)
+}
+
+func novoChamado(c []string) {
+	id, x, y, valor, prazo := inteiro(c[0]), inteiro(c[1]), inteiro(c[2]), inteiro(c[3]), inteiro(c[4])
+	h, d := hospitalMaisProximo(x, y)
+	arv := 2 * h
+	if valor >= 60 { // grave
+		arv++
+	}
+	ch := Chamado{ID: id, X: x, Y: y, Valor: valor, Prazo: prazo, Arv: arv, Dist: d}
+	tab.InsereTabela(id, ch)
+	novos = append(novos, ch)
+	raizes[arv] = insere(raizes[arv], int32(d), int32(id))
+	agenda(prazo, id)
+}
+
+func remover(id int) {
+	c := tab.Ptr(id)
+	if c == nil {
+		return
+	}
+	if !c.Reservado {
+		raizes[c.Arv] = removeArv(raizes[c.Arv], int32(c.Dist), int32(id))
+	}
+	tab.Remove(id)
+}
+
+func expirar(turno int) {
+	p := turno - 1
+	if p < 0 || p >= len(expira) {
+		return
+	}
+	for _, id := range expira[p] {
+		remover(id)
+	}
+	expira[p] = nil
+}
+
+func liberar(id int) {
+	c := tab.Ptr(id)
+	if c != nil && c.Reservado {
+		c.Reservado = false
+		raizes[c.Arv] = insere(raizes[c.Arv], int32(c.Dist), int32(id))
 	}
 }
 
-// removerExpirados mantém só os chamados com prazo maior ou igual ao turno.
-func removerExpirados(turno int) {
-	vivos := chamados[:0]
-	for _, c := range chamados {
-		if c.Prazo >= turno {
-			vivos = append(vivos, c)
-		}
-	}
-	chamados = vivos
-}
-
-func FolhaMenor(a *No) *No {
-	if a == nil {
-		return nil
-	}
-
-	if a.Esq == nil {
-		return a
-	}
-
-	return FolhaMenor(a.Esq)
-}
-
-func jogarTurno(turno int, ambulancias []Ambulancia, hospitais []Hospital) {
-	for _, a := range ambulancias {
-		mov := "P"
-		hospitalProx := hospitais[0]
-		distanciaHospital := distancia(a.X, a.Y, hospitalProx.X, hospitalProx.Y)
-		if a.Livre {
-			melhor := -1
-
-			for c := range hospitais {
-				if distancia(a.X, a.Y, hospitais[c].X, hospitais[c].Y) < distanciaHospital {
-					hospitalProx = hospitais[c]
-					distanciaHospital = distancia(a.X, a.Y, hospitalProx.X, hospitalProx.Y)
-				}
-			}
-			menordistancia := FolhaMenor(hospitalProx.No)
-			if melhor == -1 || menordistancia != nil {
-				if menordistancia.Info[0].atendido != true {
-					if menordistancia.Info[0].Prazo >= turno+distancia(a.X, a.Y, menordistancia.Info[0].X, menordistancia.Info[0].Y) {
-						melhor = menordistancia.Info[0].ID
-						menordistancia.Info[0].atendido = true
+func escolher(a Ambulancia, turno int) int {
+	melhorID, melhorArv := 0, 0
+	var melhorDist int32
+	melhorScore := -1.0
+	for t := range raizes {
+		visitados, validos := 0, 0
+		percorre(raizes[t], func(n int32) bool {
+			visitados++
+			c := tab.Ptr(int(nos[n].id))
+			if c != nil {
+				da := distancia(a.X, a.Y, c.X, c.Y)
+				if c.Prazo >= turno+da-1 { // chega a tempo
+					validos++
+					s := float64(c.Valor) / float64(da+c.Dist)
+					if s > melhorScore {
+						melhorScore, melhorID, melhorArv, melhorDist = s, c.ID, t, nos[n].dist
 					}
 				}
 			}
-
-			if melhor != -1 {
-				mov = direcao(a.X, a.Y, menordistancia.Info[0].X, menordistancia.Info[0].Y)
-			}
-		} else {
-			mov = direcao(a.X, a.Y, hospitalProx.X, hospitalProx.Y)
-		}
-		fmt.Fprintln(escritor, a.ID, mov)
+			return visitados < 24 && validos < 6
+		})
 	}
-	fmt.Fprintln(escritor, "FIM")
+	if melhorID != 0 {
+		raizes[melhorArv] = removeArv(raizes[melhorArv], melhorDist, int32(melhorID))
+		tab.Ptr(melhorID).Reservado = true
+	}
+	return melhorID
+}
+
+func trocarAlvo(a Ambulancia, turno int) {
+	cur := tab.Ptr(alvo[a.ID])
+	scoreCur := float64(cur.Valor) / float64(distancia(a.X, a.Y, cur.X, cur.Y)+cur.Dist)
+	melhor, melhorScore := -1, scoreCur*1.25
+	for i := range novos {
+		c := &novos[i]
+		da := distancia(a.X, a.Y, c.X, c.Y)
+		if c.Prazo < turno+da-1 {
+			continue
+		}
+		if s := float64(c.Valor) / float64(da+c.Dist); s > melhorScore {
+			melhor, melhorScore = i, s
+		}
+	}
+	if melhor < 0 {
+		return
+	}
+	n := tab.Ptr(novos[melhor].ID)
+	if n == nil || n.Reservado {
+		return
+	}
+	liberar(alvo[a.ID])
+	n = tab.Ptr(novos[melhor].ID)
+	raizes[n.Arv] = removeArv(raizes[n.Arv], int32(n.Dist), int32(n.ID))
+	n.Reservado = true
+	alvo[a.ID] = n.ID
+}
+
+func jogarTurno(turno int, ambulancias []Ambulancia) {
+	for _, a := range ambulancias {
+		mov := "P"
+		if !a.Livre {
+			alvo[a.ID] = 0
+			h, _ := hospitalMaisProximo(a.X, a.Y)
+			mov = direcao(a.X, a.Y, hospitais[h].X, hospitais[h].Y)
+		} else {
+			if id := alvo[a.ID]; id != 0 {
+				c := tab.Ptr(id)
+				if c == nil {
+					alvo[a.ID] = 0
+				} else if c.Prazo < turno+distancia(a.X, a.Y, c.X, c.Y)-1 {
+					liberar(id)
+					alvo[a.ID] = 0
+				}
+			}
+			if alvo[a.ID] != 0 {
+				trocarAlvo(a, turno)
+			} else {
+				alvo[a.ID] = escolher(a, turno)
+			}
+			if id := alvo[a.ID]; id != 0 {
+				c := tab.Ptr(id)
+				mov = direcao(a.X, a.Y, c.X, c.Y)
+			}
+		}
+		escritor.WriteString(strconv.Itoa(a.ID))
+		escritor.WriteString(" ")
+		escritor.WriteString(mov)
+		escritor.WriteString("\n")
+	}
+	escritor.WriteString("FIM\n")
 	escritor.Flush()
 }
 
@@ -284,30 +423,27 @@ func main() {
 	escritor = bufio.NewWriter(os.Stdout)
 
 	lerInicio()
-	fmt.Fprintln(escritor, "PRONTO")
+	escritor.WriteString("PRONTO\n")
 	escritor.Flush()
 
 	for {
-		c := lerCampos() // TURNO t
+		c := lerCampos()
 		if c == nil {
-			return // fim da partida
+			return
 		}
 		turno := inteiro(c[1])
 
-		n := inteiro(lerCampos()[1]) // CHAMADOS n
+		novos = novos[:0]
+		n := inteiro(lerCampos()[1])
 		for i := 0; i < n; i++ {
-			c := lerCampos()
-			chamados = append(chamados, Chamado{inteiro(c[0]), inteiro(c[1]), inteiro(c[2]), inteiro(c[3]), inteiro(c[4]), false})
-			for _, h := range hospitais {
-				h.No = Insere(h.No, Chamado{inteiro(c[0]), inteiro(c[1]), inteiro(c[2]), inteiro(c[3]), inteiro(c[4]), false}, h.X, h.Y)
-			}
+			novoChamado(lerCampos())
 		}
 
-		r := inteiro(lerCampos()[1]) // RECOLHIDOS r
+		r := inteiro(lerCampos()[1])
 		for i := 0; i < r; i++ {
-			removerPorID(inteiro(lerCampos()[0]))
+			remover(inteiro(lerCampos()[0]))
 		}
-		removerExpirados(turno)
+		expirar(turno)
 
 		k := inteiro(lerCampos()[1]) // AMBULANCIAS k
 		ambulancias := make([]Ambulancia, k)
@@ -322,6 +458,6 @@ func main() {
 		}
 		lerCampos() // FIM
 
-		jogarTurno(turno, ambulancias, hospitais)
+		jogarTurno(turno, ambulancias)
 	}
 }

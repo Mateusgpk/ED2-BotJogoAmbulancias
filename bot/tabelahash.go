@@ -1,13 +1,14 @@
-package bot
+package main
 
 import (
 	"fmt"
 	"strings"
 )
 
+// Tabela hash com endereçamento aberto (sondagem linear): id -> Chamado.
 type Tabela struct {
 	chaves  []int
-	valores []int
+	valores []Chamado
 	ocupada []bool
 	n       int // número de pares guardados
 }
@@ -15,7 +16,7 @@ type Tabela struct {
 func Nova(m int) *Tabela {
 	return &Tabela{
 		chaves:  make([]int, m),
-		valores: make([]int, m),
+		valores: make([]Chamado, m),
 		ocupada: make([]bool, m),
 	}
 }
@@ -48,22 +49,33 @@ func mistura(k int) int {
 	x ^= x >> 27
 	x *= 0x94d049bb133111eb
 	x ^= x >> 31
-	return int(x >> 1) // descarta o bit de sinal, para o resultado ser positivo
+	return int(x >> 1)
 }
 
 func (t *Tabela) distancia(de, ate int) int {
 	return (ate - de + t.m()) % t.m()
 }
 
-func (t *Tabela) Busca(k int) (int, bool) {
+func (t *Tabela) Busca(k int) (Chamado, bool) {
+	p := t.Ptr(k)
+	if p == nil {
+		return Chamado{}, false
+	}
+	return *p, true
+}
+
+// Ptr devolve um ponteiro para o valor guardado (ou nil). Serve para ler e
+// alterar o chamado sem copiá-lo. O ponteiro vale só até a próxima inserção
+// (que pode redimensionar a tabela).
+func (t *Tabela) Ptr(k int) *Chamado {
 	p := t.hash(k)
 	for t.ocupada[p] {
 		if t.chaves[p] == k {
-			return t.valores[p], true
+			return &t.valores[p]
 		}
 		p = (p + 1) % t.m()
 	}
-	return 0, false
+	return nil
 }
 
 func (t *Tabela) String() string {
@@ -98,7 +110,7 @@ func proximoPrimo(k int) int {
 	}
 }
 
-func (t *Tabela) InsereTabela(k, v int) {
+func (t *Tabela) InsereTabela(k int, v Chamado) {
 	p := t.hash(k)
 	for t.ocupada[p] {
 		if t.chaves[p] == k {
@@ -124,29 +136,25 @@ func (t *Tabela) redimensiona(m int) {
 		}
 	}
 	*t = *tabela
-
 }
 
+// Remove usa remoção por deslocamento para trás (sem lápides).
 func (t *Tabela) Remove(chave int) bool {
-
 	for i := t.hash(chave); t.ocupada[i]; i = (i + 1) % t.m() {
-		if t.ocupada[i] {
-			if t.chaves[i] == chave {
-				t.ocupada[i] = false
-				t.n--
-				for j := (i + 1) % t.m(); t.ocupada[j]; j = (j + 1) % t.m() {
-					h := t.hash(t.chaves[j])
-					if t.distancia(h, i) < t.distancia(h, j) {
-						t.chaves[i] = t.chaves[j]
-						t.valores[i] = t.valores[j]
-						t.ocupada[i] = true
-						t.ocupada[j] = false
-						i = j
-					}
+		if t.chaves[i] == chave {
+			t.ocupada[i] = false
+			t.n--
+			for j := (i + 1) % t.m(); t.ocupada[j]; j = (j + 1) % t.m() {
+				h := t.hash(t.chaves[j])
+				if t.distancia(h, i) < t.distancia(h, j) {
+					t.chaves[i] = t.chaves[j]
+					t.valores[i] = t.valores[j]
+					t.ocupada[i] = true
+					t.ocupada[j] = false
+					i = j
 				}
-				return true
 			}
-
+			return true
 		}
 	}
 	return false

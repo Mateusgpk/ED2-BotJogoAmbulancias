@@ -1,7 +1,7 @@
 {
   "entrega": ".",
   "etapa": 1,
-  "pontos": 0,
+  "pontos": 45,
   "maximo": 45,
   "compilou": true,
   "testes": [
@@ -10,8 +10,8 @@
       "nome": "Protocolo",
       "criterio": "nenhuma infração em 10 partidas do cenário pequeno",
       "valor": 10,
-      "pontos": 0,
-      "motivo": "semente 1: bot encerrado (saída do bot encerrada)",
+      "pontos": 10,
+      "motivo": "nenhuma infração",
       "pontuacao": false
     },
     {
@@ -19,8 +19,8 @@
       "nome": "Tempo",
       "criterio": "p99 do processador por turno até 4,0 vezes o do bot indexado (mediana de 10 partidas do cenário estresse), sem passar do teto em mais de 10 turnos por partida",
       "valor": 15,
-      "pontos": 0,
-      "motivo": "semente 1: bot encerrado (saída do bot encerrada)",
+      "pontos": 15,
+      "motivo": "razão mediana 2,1 (de 1,5 a 3,0); exigido até 4,0",
       "pontuacao": false
     },
     {
@@ -28,8 +28,8 @@
       "nome": "Bot ingênuo",
       "criterio": "soma de pontos pelo menos 10% maior que a do bot ingênuo em 10 partidas do cenário medio",
       "valor": 10,
-      "pontos": 0,
-      "motivo": "soma 0 x 64638 (-100.0%; exigido +10%)",
+      "pontos": 10,
+      "motivo": "soma 95958 x 51105 (+87.8%; exigido +10%)",
       "pontuacao": true
     },
     {
@@ -37,8 +37,8 @@
       "nome": "Bot indexado",
       "criterio": "soma de pontos pelo menos 2% maior que a do bot indexado em 10 partidas do cenário estresse",
       "valor": 10,
-      "pontos": 0,
-      "motivo": "soma 0 x 602584 (-100.0%; exigido +2%)",
+      "pontos": 10,
+      "motivo": "soma 507196 x 443006 (+14.5%; exigido +2%)",
       "pontuacao": true
     }
   ],
@@ -55,5 +55,5 @@
     9,
     10
   ],
-  "quando": "09/11/2026 17:45"
+  "quando": "11/11/2026 18:45"
 }
